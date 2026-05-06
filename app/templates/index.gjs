@@ -15,5 +15,7 @@ import Bookmarklet from '../components/bookmarklet.gjs';
 
       <Goodbye />
     </div>
+
+    <Bookmarklet />
   </div>
 </template>
