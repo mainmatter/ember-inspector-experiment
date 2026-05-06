@@ -1,12 +1,9 @@
 import { pageTitle } from 'ember-page-title';
-import { WelcomePage } from 'ember-welcome-page';
+import Hello from '../components/hello.gjs';
+import Goodbye from '../components/goodbye.js';
 
 <template>
-  {{pageTitle "ExpInspect"}}
+  {{pageTitle "Application"}}
 
   {{outlet}}
-
-  {{! The following component displays Ember's default welcome message. }}
-  <WelcomePage @extension="gjs" />
-  {{! Feel free to remove this! }}
 </template>
