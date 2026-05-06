@@ -1,0 +1,304 @@
+diff --git a/dist/dev/packages/@ember/application/instance.js b/dist/dev/packages/@ember/application/instance.js
+index 21e9dbb68d7ca3b666dea0ad225cb4c17c3c995c..970f380ee451aa377cec525d9801d15d965f6ca8 100644
+--- a/dist/dev/packages/@ember/application/instance.js
++++ b/dist/dev/packages/@ember/application/instance.js
+@@ -26,6 +26,7 @@ import '../-internals/meta/lib/meta.js';
+ import { g as get } from '../../shared-chunks/observers-Bj9qLVau.js';
+ import '../-internals/environment/index.js';
+ import { assert } from '../debug/lib/assert.js';
++import { add as debugAdd, ready as debugReady, remove as debugRemove } from '../debug/setup.js';
+ 
+ /**
+ @module @ember/application
+@@ -84,6 +85,7 @@ class ApplicationInstance extends EngineInstance {
+     this.register('-application-instance:main', this, {
+       instantiate: false
+     });
++    debugAdd(this);
+   }
+ 
+   /**
+@@ -116,6 +118,7 @@ class ApplicationInstance extends EngineInstance {
+       this.setupEventDispatcher();
+     }
+     this._booted = true;
++    debugReady(this);
+     return this;
+   }
+   setupRegistry(options) {
+@@ -253,6 +256,7 @@ class ApplicationInstance extends EngineInstance {
+   willDestroy() {
+     super.willDestroy();
+     this.application._unwatchInstance(this);
++    debugRemove(this);
+   }
+ 
+   /**
+diff --git a/dist/dev/packages/@ember/debug/inspect/identity.js b/dist/dev/packages/@ember/debug/inspect/identity.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..6323f9301f79a8a09b16d9748d6fe06a84da18cb
+--- /dev/null
++++ b/dist/dev/packages/@ember/debug/inspect/identity.js
+@@ -0,0 +1,46 @@
++import { ControllerMixin } from '../../controller/index.js';
++import CoreObject from '../../object/core.js';
++import MutableEnumerable from '../../enumerable/mutable.js';
++import { NativeArray } from '../../array/index.js';
++import MutableArray from '../../array/mutable.js';
++import EmberComponent from '../../component/index.js';
++import Evented from '../../object/evented.js';
++import PromiseProxyMixin from '../../object/promise-proxy-mixin.js';
++import EmberObject from '../../object/index.js';
++import Observable from '../../object/observable.js';
++
++const emberNames = new Map([
++  [Evented, 'Evented Mixin'],
++  [PromiseProxyMixin, 'PromiseProxy Mixin'],
++  [MutableArray, 'MutableArray Mixin'],
++  [MutableEnumerable, 'MutableEnumerable Mixin'],
++  [NativeArray, 'NativeArray Mixin'],
++  [Observable, 'Observable Mixin'],
++  [ControllerMixin, 'Controller Mixin'],
++  [CoreObject, 'CoreObject'],
++  [EmberObject, 'EmberObject'],
++  [EmberComponent, 'Classic Component'],
++]);
++
++export function objectIdentity(object) {
++  if (object instanceof Function) {
++    return 'Function:' + object.name;
++  }
++
++  if (object !== Object(object)) {
++    return typeof object;
++  }
++
++  if (Array.isArray(object)) {
++    return 'Array';
++  }
++
++  let className = '';
++  let { constructor } = object;
++
++  if (constructor) {
++    className = emberNames.get(constructor) || constructor.name;
++  }
++
++  return name || className || 'unknown';
++}
+diff --git a/dist/dev/packages/@ember/debug/inspect/index.js b/dist/dev/packages/@ember/debug/inspect/index.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..419e941bf0a85d7e174c98c78f81a059b56468c5
+--- /dev/null
++++ b/dist/dev/packages/@ember/debug/inspect/index.js
+@@ -0,0 +1,40 @@
++import ObjectProxy from '../../object/proxy.js';
++import { guidFor } from '../../object/internals.js';
++import { objectIdentity } from './identity.js';
++import { ownProperties } from './properties.js';
++export * from '../index.js';
++export * from './tree.js';
++
++export function inspectShallow(object) {
++  if (
++    object instanceof ObjectProxy &&
++    object.content &&
++    !object._showProxyDetails
++  ) {
++    object = object.content;
++  }
++
++  return {
++    id: guidFor(object),
++    name: objectIdentity(object),
++    properties: ownProperties(object),
++  };
++}
++
++export function inspectDeep(object) {
++  const chain = [];
++
++  chain.push(inspectShallow(object));
++
++  const proto = Object.getPrototypeOf(object);
++
++  if (proto && proto !== Object.prototype) {
++    chain.push(...inspectDeep(proto));
++  }
++
++  return chain;
++}
++
++export function inspectValue(object, property) {
++  return null;
++}
+diff --git a/dist/dev/packages/@ember/debug/inspect/properties.js b/dist/dev/packages/@ember/debug/inspect/properties.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..19f1679e5ebdebb223554b5c5bc48c2ab633e9f3
+--- /dev/null
++++ b/dist/dev/packages/@ember/debug/inspect/properties.js
+@@ -0,0 +1,67 @@
++import { meta as emberMeta } from '../../-internals/meta/index.js';
++import { OWNER } from '../../../@glimmer/owner/index.js';
++
++function isInternalProperty(property) {
++  if (
++    [
++      '_state',
++      '_states',
++      '_target',
++      '_currentState',
++      '_super',
++      '_debugContainerKey',
++      '_transitionTo',
++      '_debugInfo',
++      '_showProxyDetails',
++    ].includes(property)
++  ) {
++    return true;
++  }
++
++  return [
++    '__LEGACY_OWNER',
++    '__ARGS__',
++    '__HAS_BLOCK__',
++    '__PROPERTY_DID_CHANGE__',
++  ].some((internalProp) => property.startsWith(internalProp));
++}
++
++export function ownProperties(object) {
++  let meta = emberMeta(object);
++
++  if (Array.isArray(object)) {
++    return undefined;
++  }
++
++  let props = Object.getOwnPropertyDescriptors(object);
++
++  // Skip constructor
++  delete props.constructor;
++
++  // Skip owner
++  delete props[OWNER];
++
++  meta.forEachDescriptors((key, desc) => {
++    // only for own props
++    if (!props[key]) {
++      return;
++    }
++
++    props[key] = desc;
++    props[key].instanceOf = desc.constructor.name;
++  });
++
++  for (const key of Object.keys(props)) {
++    if (isInternalProperty(key)) {
++      delete props[key];
++      continue;
++    }
++
++    // props[key].readOnly = !props[key].set || !props[key].writable;
++    props[key].valueType = typeof props[key].value; // TODO: This is both naive and incomplete
++
++    delete props[key].value;
++  }
++
++  return props;
++}
+diff --git a/dist/dev/packages/@ember/debug/inspect/tree.js b/dist/dev/packages/@ember/debug/inspect/tree.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..6e01dde32993e8ca32105cb350ec0b4130aced02
+--- /dev/null
++++ b/dist/dev/packages/@ember/debug/inspect/tree.js
+@@ -0,0 +1,36 @@
++import { captureRenderTree } from '../index.js';
++import { guidFor } from '../../object/internals';
++
++const INSTANCE_CACHE = new Map();
++
++function serialize(node) {
++  const { args, id, instance, name, type, children } = node;
++  let instanceId = null;
++
++  if (instance) {
++    instanceId = guidFor(instance);
++    INSTANCE_CACHE.set(instanceId, instance);
++  }
++
++  return {
++    id,
++    instance: instanceId && { id: instanceId },
++    name,
++    type,
++    children: children?.map(serialize),
++    args: {
++      named: Object.keys(args.named),
++      positional: [],
++    },
++  };
++}
++
++export function getTree(appInstance) {
++  const captured = captureRenderTree(appInstance);
++
++  return captured.map(node => serialize(node));
++}
++
++export function getReference(id) {
++  return INSTANCE_CACHE.get(id);
++}
+diff --git a/dist/dev/packages/@ember/debug/setup.js b/dist/dev/packages/@ember/debug/setup.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..af65ae714757204d821a601b4dfe22712429eef0
+--- /dev/null
++++ b/dist/dev/packages/@ember/debug/setup.js
+@@ -0,0 +1,37 @@
++import { g as guidFor } from '../../shared-chunks/mandatory-setter-DHZe7-kW.js';
++import { VERSION } from '../version/index.js';
++
++export function add(appInstance) {
++  globalThis.__EMBER_DEBUG_ENTRIES__ ??= [];
++
++  const entry = {
++    VERSION,
++    id: `${guidFor(appInstance)}:${globalThis.__EMBER_DEBUG_ENTRIES__.length}`, // adding array index to ensure uniqueness
++    reference: appInstance,
++    modules: async () => import('./inspect/index.js'),
++  };
++
++  globalThis.__EMBER_DEBUG_ENTRIES__.push(entry);
++  globalThis.dispatchEvent(new CustomEvent('EmberDebugEntryAdded', { detail: entry.id }));
++
++  return entry.id;
++}
++
++export function remove(appInstance) {
++  globalThis.__EMBER_DEBUG_ENTRIES__ ??= [];
++
++  const entry = globalThis.__EMBER_DEBUG_ENTRIES__.find(e => e.reference === appInstance);
++  if (entry) {
++    globalThis.__EMBER_DEBUG_ENTRIES__ = globalThis.__EMBER_DEBUG_ENTRIES__.filter(e => e !== entry);
++    globalThis.dispatchEvent(new CustomEvent('EmberDebugEntryRemoved', { detail: entry.id }));
++  }
++}
++
++export function ready(appInstance) {
++  globalThis.__EMBER_DEBUG_ENTRIES__ ??= [];
++
++  const entry = globalThis.__EMBER_DEBUG_ENTRIES__.find(e => e.reference === appInstance);
++  if (entry) {
++    globalThis.dispatchEvent(new CustomEvent('EmberDebugEntryReady', { detail: entry.id }));
++  }
++}
+diff --git a/package.json b/package.json
+index d917c6108ecb2ebdeaca0ea25336b5544bf1d9cd..cbc3641cef52f08fd6602d51d47eac46dc409133 100644
+--- a/package.json
++++ b/package.json
+@@ -219,6 +219,7 @@
+       "@ember/debug/container-debug-adapter.js": "ember-source/@ember/debug/container-debug-adapter.js",
+       "@ember/debug/data-adapter.js": "ember-source/@ember/debug/data-adapter.js",
+       "@ember/debug/index.js": "ember-source/@ember/debug/index.js",
++      "@ember/debug/inspect/index.js": "ember-source/@ember/debug/inspect/index.js",
+       "@ember/debug/lib/assert.js": "ember-source/@ember/debug/lib/assert.js",
+       "@ember/debug/lib/capture-render-tree.js": "ember-source/@ember/debug/lib/capture-render-tree.js",
+       "@ember/debug/lib/deprecate.js": "ember-source/@ember/debug/lib/deprecate.js",

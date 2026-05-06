@@ -19,3 +19,15 @@ export default class App extends Application {
 }
 
 loadInitializers(App, config.modulePrefix, compatModules);
+
+globalThis.addEventListener('EmberDebugEntryAdded', (event) => {
+  console.log('Added', event.detail);
+});
+
+globalThis.addEventListener('EmberDebugEntryReady', (event) => {
+  console.log('Ready', event.detail);
+});
+
+globalThis.addEventListener('EmberDebugEntryRemoved', (event) => {
+  console.log('Removed', event.detail);
+});
